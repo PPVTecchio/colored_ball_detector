@@ -142,45 +142,96 @@ void ColoredBallDetector::imageCb(const sensor_msgs::ImageConstPtr& msg) {
               cv::Scalar(low_H_, low_S_, low_V_),
               cv::Scalar(high_H_, high_S_, high_V_),
               image_segmented_color);
-
   cv::medianBlur(image_segmented_color, image_segmented_color, 5);
 
-  cv::Mat image_segmented_color_not;
-  cv::bitwise_not(image_segmented_color, image_segmented_color_not);
+  // Find contours
+  std::vector<std::vector<cv::Point>> contours;
+  std::vector<cv::Vec4i> hierarchy;
 
-  // cv::GaussianBlur(image_segmented_color,
-  //                  image_segmented_color,
-  //                  cv::Size(13, 13),
-  //                  0,
-  //                  0,
-  //                  cv::BORDER_REPLICATE);
+  cv::findContours(image_segmented_color,
+                   contours,
+                   hierarchy,
+                   cv::RETR_EXTERNAL,
+                   cv::CHAIN_APPROX_SIMPLE,
+                   cv::Point(0, 0));
+  if (contours.size() == 0)
+    return;
 
-  cv::Mat image_gray;
-  cv::cvtColor(cv_ptr->image, image_gray, cv::COLOR_BGR2GRAY);
-  cv::medianBlur(image_gray, image_gray, 5);
+  std::vector<cv::Scalar> color = {cv::Scalar(255, 0, 0),
+                                   cv::Scalar(0, 255, 0)};
 
-  cv::bitwise_xor(image_gray, image_gray,
-                  image_gray, image_segmented_color_not);
+  std::vector<cv::RotatedRect> ellipse_boxes;
+  std::vector<cv::Moments> mu(contours.size());
+  std::vector<cv::Point2f> mc(contours.size());
 
-  std::vector<cv::Vec3f> circles;
-  cv::HoughCircles(image_gray, circles, cv::HOUGH_GRADIENT, 1,
-                   100, 100, 30, 20, 720);
-  for (size_t i = 0; i < circles.size(); i++) {
-    cv::Vec3i c = circles[i];
-    cv::Point center = cv::Point(c[0], c[1]);
-    // circle center
-    cv::circle(cv_ptr->image, center, 1, cv::Scalar(0, 100, 100),
-                3, cv::LINE_AA);
-    // circle outline
-    int radius = c[2];
-    cv::circle(cv_ptr->image, center, radius, cv::Scalar(255, 0, 255),
-                3, cv::LINE_AA);
-    ROS_INFO("Circle %d at (%d, %d)", i, c[0], c[1]);
+  cv::Mat ellipse_image = cv::Mat::zeros(image_segmented_color.size(), CV_8UC1);
+
+  for (int i = 0; i < contours.size(); i++) {
+    if (contours[i].size() < 6)
+      continue;
+    ellipse_boxes.push_back(cv::fitEllipse(contours[i]));
+    cv::ellipse(ellipse_image, ellipse_boxes[i],
+      cv::Scalar(255, 255, 255), 3, cv::LINE_AA);
   }
+
+  std::vector<std::vector<cv::Point>> contours_ellipse;
+  std::vector<cv::Vec4i> hierarchy_ellipse;
+  cv::findContours(ellipse_image,
+                   contours_ellipse,
+                   hierarchy_ellipse,
+                   cv::RETR_EXTERNAL,
+                   cv::CHAIN_APPROX_SIMPLE,
+                   cv::Point(0, 0));
+
+  std::vector<double> contour_mismatch;
+  for (int i = 0; i < contours.size(); i++) {
+    contour_mismatch.push_back(cv::matchShapes(contours[i], contours_ellipse[i],
+      CV_CONTOURS_MATCH_I2, 0));
+
+    mu[i] = cv::moments(contours_ellipse[i], false);
+    mc[i] = cv::Point2f(mu[i].m10 / mu[i].m00, mu[i].m01 / mu[i].m00);
+
+    cv::putText(cv_ptr->image, std::to_string(contour_mismatch[i]),
+                mc[i], CV_FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 0, 0),
+                1, 8, false);
+  }
+
+
+
+
+
+
+  // Image processing for HoughCircles
+
+  // cv::Mat image_segmented_color_not;
+  // cv::bitwise_not(image_segmented_color, image_segmented_color_not);
+
+  // cv::Mat image_gray;
+  // cv::cvtColor(cv_ptr->image, image_gray, cv::COLOR_BGR2GRAY);
+  // cv::medianBlur(image_gray, image_gray, 5);
+
+  // cv::bitwise_xor(image_gray, image_gray,
+  //                 image_gray, image_segmented_color_not);
+
+  // std::vector<cv::Vec3f> circles;
+  // cv::HoughCircles(image_gray, circles, cv::HOUGH_GRADIENT, 1,
+  //                  50, 100, 20, 20, 720);
+  // for (size_t i = 0; i < circles.size(); i++) {
+  //   cv::Vec3i c = circles[i];
+  //   cv::Point center = cv::Point(c[0], c[1]);
+  //   // circle center
+  //   cv::circle(cv_ptr->image, center, 1, cv::Scalar(0, 100, 100),
+  //               3, cv::LINE_AA);
+  //   // circle outline
+  //   int radius = c[2];
+  //   cv::circle(cv_ptr->image, center, radius, cv::Scalar(255, 0, 255),
+  //               3, cv::LINE_AA);
+  //   ROS_INFO("Circle %d at (%d, %d)", i, c[0], c[1]);
+  // }
 
   // Update GUI Window
   cv::imshow(OPENCV_WINDOW_O, cv_ptr->image);
-  cv::imshow(OPENCV_WINDOW_M, image_gray);
+  cv::imshow(OPENCV_WINDOW_M, ellipse_image);
   cv::waitKey(3);
 
   // Output modified video stream
