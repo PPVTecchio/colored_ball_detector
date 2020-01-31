@@ -157,44 +157,72 @@ void ColoredBallDetector::imageCb(const sensor_msgs::ImageConstPtr& msg) {
   if (contours.size() == 0)
     return;
 
-  std::vector<cv::Scalar> color = {cv::Scalar(255, 0, 0),
-                                   cv::Scalar(0, 255, 0)};
-
-  std::vector<cv::RotatedRect> ellipse_boxes;
-  std::vector<cv::Moments> mu(contours.size());
-  std::vector<cv::Point2f> mc(contours.size());
-
-  cv::Mat ellipse_image = cv::Mat::zeros(image_segmented_color.size(), CV_8UC1);
+  std::vector<std::vector<cv::Point>> contours_polygon(contours.size());
+  std::vector<cv::Point2f> circle_centers(contours.size());
+  std::vector<float> circle_radius(contours.size());
 
   for (int i = 0; i < contours.size(); i++) {
-    if (contours[i].size() < 6)
-      continue;
-    ellipse_boxes.push_back(cv::fitEllipse(contours[i]));
-    cv::ellipse(ellipse_image, ellipse_boxes[i],
-      cv::Scalar(255, 255, 255), 3, cv::LINE_AA);
+    cv::approxPolyDP(contours[i], contours_polygon[i],
+      cv::arcLength(contours[i], true)*0.01, true);
+    ROS_INFO_STREAM("idx: " << i << " # vertices: " << contours_polygon[i].size());
+
+
+
+    cv::drawContours(cv_ptr->image, contours_polygon, i,
+      cv::Scalar(0, 255, 0), cv::LINE_4, 1, hierarchy);
+    cv::minEnclosingCircle(contours[i], circle_centers[i], circle_radius[i]);
+    // cv::circle(cv_ptr->image, circle_centers[i], circle_radius[i],
+    //   cv::Scalar(0, 255, 0), cv::FILLED, cv::LINE_AA);
+
+    // cv::drawContours(cv_ptr->image, contours, i,
+    //   cv::Scalar(255, 0, 0), cv::LINE_4, 1, hierarchy);
+
+    cv::putText(cv_ptr->image, std::to_string(contours_polygon[i].size()),
+              circle_centers[i], CV_FONT_HERSHEY_SIMPLEX, 0.5,
+              cv::Scalar(255, 0, 0), 1, 8, false);
+
   }
 
-  std::vector<std::vector<cv::Point>> contours_ellipse;
-  std::vector<cv::Vec4i> hierarchy_ellipse;
-  cv::findContours(ellipse_image,
-                   contours_ellipse,
-                   hierarchy_ellipse,
-                   cv::RETR_EXTERNAL,
-                   cv::CHAIN_APPROX_SIMPLE,
-                   cv::Point(0, 0));
 
-  std::vector<double> contour_mismatch;
-  for (int i = 0; i < contours.size(); i++) {
-    contour_mismatch.push_back(cv::matchShapes(contours[i], contours_ellipse[i],
-      CV_CONTOURS_MATCH_I2, 0));
 
-    mu[i] = cv::moments(contours_ellipse[i], false);
-    mc[i] = cv::Point2f(mu[i].m10 / mu[i].m00, mu[i].m01 / mu[i].m00);
+  // std::vector<cv::Scalar> color = {cv::Scalar(255, 0, 0),
+  //                                  cv::Scalar(0, 255, 0)};
 
-    cv::putText(cv_ptr->image, std::to_string(contour_mismatch[i]),
-                mc[i], CV_FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 0, 0),
-                1, 8, false);
-  }
+  // std::vector<cv::RotatedRect> ellipse_boxes;
+  // std::vector<cv::Moments> mu(contours.size());
+  // std::vector<cv::Point2f> mc(contours.size());
+
+  // cv::Mat ellipse_image = cv::Mat::zeros(image_segmented_color.size(), CV_8UC1);
+
+  // for (int i = 0; i < contours.size(); i++) {
+  //   if (contours[i].size() < 6)
+  //     continue;
+  //   ellipse_boxes.push_back(cv::fitEllipse(contours[i]));
+  //   cv::ellipse(ellipse_image, ellipse_boxes[i],
+  //     cv::Scalar(255, 255, 255), 3, cv::LINE_AA);
+  // }
+
+  // std::vector<std::vector<cv::Point>> contours_ellipse;
+  // std::vector<cv::Vec4i> hierarchy_ellipse;
+  // cv::findContours(ellipse_image,
+  //                  contours_ellipse,
+  //                  hierarchy_ellipse,
+  //                  cv::RETR_EXTERNAL,
+  //                  cv::CHAIN_APPROX_SIMPLE,
+  //                  cv::Point(0, 0));
+
+  // std::vector<double> contour_mismatch;
+  // for (int i = 0; i < contours.size(); i++) {
+  //   contour_mismatch.push_back(cv::matchShapes(contours[i], contours_ellipse[i],
+  //     CV_CONTOURS_MATCH_I2, 0));
+
+  //   mu[i] = cv::moments(contours_ellipse[i], false);
+  //   mc[i] = cv::Point2f(mu[i].m10 / mu[i].m00, mu[i].m01 / mu[i].m00);
+
+  //   cv::putText(cv_ptr->image, std::to_string(contour_mismatch[i]),
+  //               mc[i], CV_FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 0, 0),
+  //               1, 8, false);
+  // }
 
 
 
@@ -231,7 +259,7 @@ void ColoredBallDetector::imageCb(const sensor_msgs::ImageConstPtr& msg) {
 
   // Update GUI Window
   cv::imshow(OPENCV_WINDOW_O, cv_ptr->image);
-  cv::imshow(OPENCV_WINDOW_M, ellipse_image);
+  cv::imshow(OPENCV_WINDOW_M, image_segmented_color);
   cv::waitKey(3);
 
   // Output modified video stream
