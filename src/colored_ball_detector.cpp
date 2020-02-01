@@ -27,6 +27,7 @@ class ColoredBallDetector {
   int high_H_ = 30,
       high_S_ = 255,
       high_V_ = 255;
+  bool opened_windows = false;
   static void on_low_H_thresh_trackbar(int v , void *ptr) {
     // resolve 'this':
     ColoredBallDetector *that = reinterpret_cast<ColoredBallDetector*>(ptr);
@@ -68,17 +69,30 @@ class ColoredBallDetector {
   ColoredBallDetector();
   ~ColoredBallDetector();
   void imageCb(const sensor_msgs::ImageConstPtr& msg);
+  void graphicalColorPickin(void);
 };
 
 ColoredBallDetector::ColoredBallDetector() : it_(nh_) {
+  opened_windows = false;
   // Subscrive to input video feed and publish output video feed
   image_sub_ = it_.subscribe("/camera/image_raw", 1,
     &ColoredBallDetector::imageCb, this);
   // image_pub_ = it_.advertise("/image_converter/output_video", 1);
+}
 
-  cv::namedWindow(OPENCV_WINDOW_O);
-  cv::namedWindow(OPENCV_WINDOW_M);
+ColoredBallDetector::~ColoredBallDetector() {
+  if (opened_windows) {
+    cv::destroyWindow(OPENCV_WINDOW_O);
+    cv::destroyWindow(OPENCV_WINDOW_M);
+  }
+}
 
+void ColoredBallDetector::graphicalColorPickin(void) {
+  if (!opened_windows) {
+    cv::namedWindow(OPENCV_WINDOW_O);
+    cv::namedWindow(OPENCV_WINDOW_M);
+    opened_windows = true;
+  }
   // Trackbars to set thresholds for HSV values
   cv::createTrackbar("Low H",
                      OPENCV_WINDOW_O,
@@ -116,12 +130,6 @@ ColoredBallDetector::ColoredBallDetector() : it_(nh_) {
                      max_value_,
                      on_high_V_thresh_trackbar,
                      this);
-
-}
-
-ColoredBallDetector::~ColoredBallDetector() {
-  cv::destroyWindow(OPENCV_WINDOW_O);
-  cv::destroyWindow(OPENCV_WINDOW_M);
 }
 
 void ColoredBallDetector::imageCb(const sensor_msgs::ImageConstPtr& msg) {
@@ -163,8 +171,9 @@ void ColoredBallDetector::imageCb(const sensor_msgs::ImageConstPtr& msg) {
 
   for (int i = 0; i < contours.size(); i++) {
     cv::approxPolyDP(contours[i], contours_polygon[i],
-      cv::arcLength(contours[i], true)*0.01, true);
-    ROS_INFO_STREAM("idx: " << i << " # vertices: " << contours_polygon[i].size());
+      cv::arcLength(contours[i], true)*0.001, true);
+    ROS_INFO_STREAM("idx: " << i << " # vertices: "
+      << contours_polygon[i].size());
 
 
 
@@ -258,9 +267,11 @@ void ColoredBallDetector::imageCb(const sensor_msgs::ImageConstPtr& msg) {
   // }
 
   // Update GUI Window
-  cv::imshow(OPENCV_WINDOW_O, cv_ptr->image);
-  cv::imshow(OPENCV_WINDOW_M, image_segmented_color);
-  cv::waitKey(3);
+  if (opened_windows) {
+    cv::imshow(OPENCV_WINDOW_O, cv_ptr->image);
+    cv::imshow(OPENCV_WINDOW_M, image_segmented_color);
+    cv::waitKey(3);
+  }
 
   // Output modified video stream
   // image_pub_.publish(cv_ptr->toImageMsg());
@@ -291,9 +302,10 @@ void ColoredBallDetector::on_high_V_thresh_trackbar(int v) {
     cv::setTrackbarPos("High V", OPENCV_WINDOW_O, high_V_);
 }
 
-int main(int argc, char** argv){
+int main(int argc, char** argv) {
   ros::init(argc, argv, "image_converter");
-  ColoredBallDetector ic;
+  ColoredBallDetector cbd;
+  cbd.graphicalColorPickin();
   ros::spin();
   return 0;
 }
