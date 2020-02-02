@@ -3,6 +3,8 @@
 */
 
 #include <ros/ros.h>
+#include <std_msgs/Header.h>
+#include <geometry_msgs/PointStamped.h>
 #include <image_transport/image_transport.h>
 #include <cv_bridge/cv_bridge.h>
 #include <sensor_msgs/image_encodings.h>
@@ -11,14 +13,14 @@
 
 static const std::string OPENCV_WINDOW_O = "Original";
 static const std::string OPENCV_WINDOW_M = "Modified";
-// const int LOW_H  = 20, LOW_S  = 0.00*255, LOW_V  = 0.00*255;
-// const int HIGH_H = 60, HIGH_S = 1.00*255, HIGH_V = 1.00*255;
 
 class ColoredBallDetector {
   ros::NodeHandle nh_;
+  ros::Publisher pubPointStamped_;
   image_transport::ImageTransport it_;
   image_transport::Subscriber image_sub_;
-  // image_transport::Publisher image_pub_;
+  std::size_t id_threshold_ = 40;
+  const double camera_fov = M_PI / 1.5;
   const int max_value_H_ = 360/2;
   const int max_value_ = 255;
   int low_H_ = 20,
@@ -69,15 +71,15 @@ class ColoredBallDetector {
   ColoredBallDetector();
   ~ColoredBallDetector();
   void imageCb(const sensor_msgs::ImageConstPtr& msg);
-  void graphicalColorPickin(void);
+  void graphicalColorPicking(void);
 };
 
 ColoredBallDetector::ColoredBallDetector() : it_(nh_) {
   opened_windows = false;
-  // Subscrive to input video feed and publish output video feed
   image_sub_ = it_.subscribe("/camera/image_raw", 1,
     &ColoredBallDetector::imageCb, this);
-  // image_pub_ = it_.advertise("/image_converter/output_video", 1);
+  pubPointStamped_ = nh_.advertise<geometry_msgs::PointStamped>
+    ("colored_ball_detector/yaw", 1);
 }
 
 ColoredBallDetector::~ColoredBallDetector() {
@@ -87,7 +89,7 @@ ColoredBallDetector::~ColoredBallDetector() {
   }
 }
 
-void ColoredBallDetector::graphicalColorPickin(void) {
+void ColoredBallDetector::graphicalColorPicking(void) {
   if (!opened_windows) {
     cv::namedWindow(OPENCV_WINDOW_O);
     cv::namedWindow(OPENCV_WINDOW_M);
@@ -166,105 +168,64 @@ void ColoredBallDetector::imageCb(const sensor_msgs::ImageConstPtr& msg) {
     return;
 
   std::vector<std::vector<cv::Point>> contours_polygon(contours.size());
-  std::vector<cv::Point2f> circle_centers(contours.size());
-  std::vector<float> circle_radius(contours.size());
+  std::vector<cv::Moments> moments(contours.size());
+  std::vector<cv::Point2f> centers(contours.size());
+  std::size_t max = 0;
+  int id = -1;
 
   for (int i = 0; i < contours.size(); i++) {
     cv::approxPolyDP(contours[i], contours_polygon[i],
       cv::arcLength(contours[i], true)*0.001, true);
-    ROS_INFO_STREAM("idx: " << i << " # vertices: "
-      << contours_polygon[i].size());
 
-
+    // computing polygon centers
+    moments[i] = cv::moments(contours[i], false);
+    centers[i] = cv::Point2f(moments[i].m10 / moments[i].m00,
+      moments[i].m01 / moments[i].m00);
 
     cv::drawContours(cv_ptr->image, contours_polygon, i,
       cv::Scalar(0, 255, 0), cv::LINE_4, 1, hierarchy);
-    cv::minEnclosingCircle(contours[i], circle_centers[i], circle_radius[i]);
-    // cv::circle(cv_ptr->image, circle_centers[i], circle_radius[i],
-    //   cv::Scalar(0, 255, 0), cv::FILLED, cv::LINE_AA);
-
-    // cv::drawContours(cv_ptr->image, contours, i,
-    //   cv::Scalar(255, 0, 0), cv::LINE_4, 1, hierarchy);
 
     cv::putText(cv_ptr->image, std::to_string(contours_polygon[i].size()),
-              circle_centers[i], CV_FONT_HERSHEY_SIMPLEX, 0.5,
+              centers[i], CV_FONT_HERSHEY_SIMPLEX, 0.5,
               cv::Scalar(255, 0, 0), 1, 8, false);
+    cv::circle(cv_ptr->image, centers[i], 4, cv::Scalar(0, 255, 0),
+      2, cv::FILLED, 0);
 
+    // Select candidate for circle from maximum number of vertices
+    // from polygon approximation
+    if (contours_polygon[i].size() > id_threshold_) {
+      if (max < contours_polygon[i].size()) {
+        max = contours_polygon[i].size();
+        id = i;
+      }
+    }
   }
 
+  if (id != -1) {
+
+    // ROS_INFO_STREAM("idx: " << id);
+    // ROS_INFO_STREAM("# vertices: " << max);
+    // ROS_INFO_STREAM("Cx: " << centers[id].x);
+    // ROS_INFO_STREAM("Cy: " << centers[id].y);
 
 
-  // std::vector<cv::Scalar> color = {cv::Scalar(255, 0, 0),
-  //                                  cv::Scalar(0, 255, 0)};
+    // getting header info from camera msg
+    std_msgs::Header outputHeaderMsg;
+    outputHeaderMsg.seq = msg->header.seq;
+    outputHeaderMsg.stamp = ros::Time::now();
+    outputHeaderMsg.frame_id = msg->header.frame_id;
 
-  // std::vector<cv::RotatedRect> ellipse_boxes;
-  // std::vector<cv::Moments> mu(contours.size());
-  // std::vector<cv::Point2f> mc(contours.size());
+    geometry_msgs::PointStamped outputPointStampedMsg;
+    outputPointStampedMsg.header = outputHeaderMsg;
+    double dx = centers[id].x - msg->width / 2;
+    double dy = centers[id].y - msg->height / 2;
+    outputPointStampedMsg.point.x = dx;
+    outputPointStampedMsg.point.y = dy;
+    outputPointStampedMsg.point.z = -(dx * camera_fov / msg->width);
 
-  // cv::Mat ellipse_image = cv::Mat::zeros(image_segmented_color.size(), CV_8UC1);
+    pubPointStamped_.publish(outputPointStampedMsg);
+  }
 
-  // for (int i = 0; i < contours.size(); i++) {
-  //   if (contours[i].size() < 6)
-  //     continue;
-  //   ellipse_boxes.push_back(cv::fitEllipse(contours[i]));
-  //   cv::ellipse(ellipse_image, ellipse_boxes[i],
-  //     cv::Scalar(255, 255, 255), 3, cv::LINE_AA);
-  // }
-
-  // std::vector<std::vector<cv::Point>> contours_ellipse;
-  // std::vector<cv::Vec4i> hierarchy_ellipse;
-  // cv::findContours(ellipse_image,
-  //                  contours_ellipse,
-  //                  hierarchy_ellipse,
-  //                  cv::RETR_EXTERNAL,
-  //                  cv::CHAIN_APPROX_SIMPLE,
-  //                  cv::Point(0, 0));
-
-  // std::vector<double> contour_mismatch;
-  // for (int i = 0; i < contours.size(); i++) {
-  //   contour_mismatch.push_back(cv::matchShapes(contours[i], contours_ellipse[i],
-  //     CV_CONTOURS_MATCH_I2, 0));
-
-  //   mu[i] = cv::moments(contours_ellipse[i], false);
-  //   mc[i] = cv::Point2f(mu[i].m10 / mu[i].m00, mu[i].m01 / mu[i].m00);
-
-  //   cv::putText(cv_ptr->image, std::to_string(contour_mismatch[i]),
-  //               mc[i], CV_FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 0, 0),
-  //               1, 8, false);
-  // }
-
-
-
-
-
-
-  // Image processing for HoughCircles
-
-  // cv::Mat image_segmented_color_not;
-  // cv::bitwise_not(image_segmented_color, image_segmented_color_not);
-
-  // cv::Mat image_gray;
-  // cv::cvtColor(cv_ptr->image, image_gray, cv::COLOR_BGR2GRAY);
-  // cv::medianBlur(image_gray, image_gray, 5);
-
-  // cv::bitwise_xor(image_gray, image_gray,
-  //                 image_gray, image_segmented_color_not);
-
-  // std::vector<cv::Vec3f> circles;
-  // cv::HoughCircles(image_gray, circles, cv::HOUGH_GRADIENT, 1,
-  //                  50, 100, 20, 20, 720);
-  // for (size_t i = 0; i < circles.size(); i++) {
-  //   cv::Vec3i c = circles[i];
-  //   cv::Point center = cv::Point(c[0], c[1]);
-  //   // circle center
-  //   cv::circle(cv_ptr->image, center, 1, cv::Scalar(0, 100, 100),
-  //               3, cv::LINE_AA);
-  //   // circle outline
-  //   int radius = c[2];
-  //   cv::circle(cv_ptr->image, center, radius, cv::Scalar(255, 0, 255),
-  //               3, cv::LINE_AA);
-  //   ROS_INFO("Circle %d at (%d, %d)", i, c[0], c[1]);
-  // }
 
   // Update GUI Window
   if (opened_windows) {
@@ -272,9 +233,6 @@ void ColoredBallDetector::imageCb(const sensor_msgs::ImageConstPtr& msg) {
     cv::imshow(OPENCV_WINDOW_M, image_segmented_color);
     cv::waitKey(3);
   }
-
-  // Output modified video stream
-  // image_pub_.publish(cv_ptr->toImageMsg());
 }
 
 void ColoredBallDetector::on_low_H_thresh_trackbar(int v) {
@@ -305,7 +263,7 @@ void ColoredBallDetector::on_high_V_thresh_trackbar(int v) {
 int main(int argc, char** argv) {
   ros::init(argc, argv, "image_converter");
   ColoredBallDetector cbd;
-  cbd.graphicalColorPickin();
+  cbd.graphicalColorPicking();
   ros::spin();
   return 0;
 }
