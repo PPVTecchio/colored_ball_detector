@@ -19,7 +19,7 @@ class ColoredBallDetector {
   ros::Publisher pubPointStamped_;
   image_transport::ImageTransport it_;
   image_transport::Subscriber image_sub_;
-  std::size_t id_threshold_ = 10;
+  std::size_t id_threshold_ = 50;
   const double camera_fov = M_PI / 1.5;
   const int max_value_H_ = 360/2;
   const int max_value_ = 255;
@@ -219,12 +219,13 @@ void ColoredBallDetector::imageCb(const sensor_msgs::ImageConstPtr& msg) {
     outputPointStampedMsg.header = outputHeaderMsg;
     double dx = centers[id].x - msg->width / 2;
     double dy = centers[id].y - msg->height / 2;
-    double area = M_PI * 0.5 * 0.5;
-    double perimeter = 2 * M_PI * 0.5;
+    // double areaCirculo = M_PI * 0.5 * 0.5;
+    double areaImagem = msg->width * msg->height;
+    double area = contourArea(contours_polygon[id], false);
     outputPointStampedMsg.point.x =
-      (contourArea(contours_polygon[id]) - area) / area;
+      abs(area / areaImagem);
     outputPointStampedMsg.point.y =
-      (arcLength(contours_polygon[id], true) - perimeter) / perimeter;
+      abs((areaImagem - area) / areaImagem);
     outputPointStampedMsg.point.z = -(dx * camera_fov / msg->width);
 
     pubPointStamped_.publish(outputPointStampedMsg);
