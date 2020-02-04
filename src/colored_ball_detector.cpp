@@ -19,7 +19,7 @@ class ColoredBallDetector {
   ros::Publisher pubPointStamped_;
   image_transport::ImageTransport it_;
   image_transport::Subscriber image_sub_;
-  std::size_t id_threshold_ = 50;
+  std::size_t id_threshold_ = 45;
   const double camera_fov = M_PI / 1.5;
   const int max_value_H_ = 360/2;
   const int max_value_ = 255;
