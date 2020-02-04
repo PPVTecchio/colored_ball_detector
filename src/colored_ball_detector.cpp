@@ -13,14 +13,15 @@
 
 static const std::string OPENCV_WINDOW_O = "Original";
 static const std::string OPENCV_WINDOW_M = "Modified";
+static const double FOCAL_DIST = (133 * 5);
 
 class ColoredBallDetector {
   ros::NodeHandle nh_;
   ros::Publisher pubPointStamped_;
   image_transport::ImageTransport it_;
   image_transport::Subscriber image_sub_;
-  std::size_t id_threshold_ = 60;
-  const double camera_fov = M_PI / 1.5;
+  std::size_t id_threshold_ = 70;
+  const double camera_fov = M_PI / 3;
   const int max_value_H_ = 360/2;
   const int max_value_ = 255;
   int low_H_ = 20,
@@ -191,6 +192,11 @@ void ColoredBallDetector::imageCb(const sensor_msgs::ImageConstPtr& msg) {
     cv::circle(cv_ptr->image, centers[i], 4, cv::Scalar(0, 255, 0),
       2, cv::FILLED, 0);
 
+    // cv::RotatedRect rect = cv::minAreaRect(contours[i]);
+
+    // ROS_INFO_STREAM("Rectangle w: " << rect.size.width <<
+    // " h: " << rect.size.height);
+
     // Select candidate for circle from maximum number of vertices
     // from polygon approximation
     if (contours_polygon[i].size() > id_threshold_) {
@@ -220,15 +226,18 @@ void ColoredBallDetector::imageCb(const sensor_msgs::ImageConstPtr& msg) {
     double dx = centers[id].x - msg->width / 2;
     double dy = centers[id].y - msg->height / 2;
     // double areaCirculo = M_PI * 0.5 * 0.5;
-    double areaImagem = msg->width * msg->height;
-    double area = contourArea(contours_polygon[id], false);
+    // double areaImagem = msg->width * msg->height;
+    // double area = contourArea(contours_polygon[id], false);
+    float radius;
+    cv::Point2f center;
+    cv::minEnclosingCircle(contours[id], center, radius);
     outputPointStampedMsg.point.x =
-      abs(area / areaImagem);
-    outputPointStampedMsg.point.y =
-      abs((areaImagem - area) / areaImagem);
+     FOCAL_DIST / (2 * radius);
+    outputPointStampedMsg.point.y = 0;
     outputPointStampedMsg.point.z = -(dx * camera_fov / msg->width);
 
-    pubPointStamped_.publish(outputPointStampedMsg);
+    if (abs(outputPointStampedMsg.point.z) < M_PI * 30 / 180)
+      pubPointStamped_.publish(outputPointStampedMsg);
   }
 
 
