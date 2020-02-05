@@ -231,12 +231,20 @@ void ColoredBallDetector::imageCb(const sensor_msgs::ImageConstPtr& msg) {
     float radius;
     cv::Point2f center;
     cv::minEnclosingCircle(contours[id], center, radius);
-    outputPointStampedMsg.point.x =
-     FOCAL_DIST / (2 * radius);
-    outputPointStampedMsg.point.y = 0;
-    outputPointStampedMsg.point.z = -(dx * camera_fov / msg->width);
+    // outputPointStampedMsg.point.x =
+    //  FOCAL_DIST / (2 * radius);
+    // outputPointStampedMsg.point.y = dx / (2 * radius);
+    // outputPointStampedMsg.point.z = -(dx * camera_fov / msg->width);
 
-    if (abs(outputPointStampedMsg.point.z) < M_PI * 30 / 180)
+    double range = FOCAL_DIST / (2 * radius);
+    double y =  abs(dx) / (2 * radius);
+    double x = sqrt(std::pow(range, 2) - std::pow(y, 2));
+    double angle = -(dx * camera_fov / msg->width);
+    outputPointStampedMsg.point.x = x;
+    outputPointStampedMsg.point.y = angle;
+    outputPointStampedMsg.point.z = range;
+
+    if (abs(angle) < M_PI * 30 / 180)
       pubPointStamped_.publish(outputPointStampedMsg);
   }
 
